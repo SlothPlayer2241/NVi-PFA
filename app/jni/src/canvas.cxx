@@ -83,13 +83,20 @@ Canvas::Canvas()
     }
         
         
-    Ren = SDL_CreateRenderer(Win, "opengles2");
+    Ren = SDL_CreateRenderer(Win, "gpu");
     if(Ren == nullptr)
     {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error!!!!!", "Failed to create render context" , nullptr);
     }
+    
+    const char *backend = SDL_GetRendererName(Ren);
+    printf("GPU backend: %s\n", backend);
+    
+    //const SDL_GPUDevice *info = SDL_GetGPUDeviceInfo(device);
+    //printf("Backend: %s\n", info.name);
         
-	SDL_SetRenderVSync(Ren, 1);
+	//SDL_SetRenderVSync(Ren, 1);
+	SDL_GL_SetSwapInterval(0);
 	SDL_SetWindowPosition(Win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 	
 	

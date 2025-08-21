@@ -189,8 +189,9 @@ void NVGui::Setup(SDL_Window *w, SDL_Renderer *r)
 #endif
     
     // Setup Platform/Renderer backends
-    ImGui_ImplSDL3_InitForSDLRenderer(w, r);
+    //ImGui_ImplSDL3_InitForSDLRenderer(w, r);
     ImGui_ImplSDLRenderer3_Init(r);
+    ImGui_ImplSDL3_InitForVulkan(w);
 }
 
 
