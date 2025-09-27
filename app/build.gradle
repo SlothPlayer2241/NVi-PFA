@@ -1,89 +1,61 @@
 plugins {
-     id 'com.android.application'
+    id 'com.android.application'
 }
 
-def buildWithCMake = true;
-
-
 android {
-    buildFeatures {
-        prefab true
-    }
-    
-    aaptOptions {
-        noCompress 'txt', 'json', 'bin', 'mid', 'midi', 'smf',  'sf2', 'ttf', 'toml', 'sf3'
-    }
-
-    sourceSets {
-        main {
-            jniLibs.srcDirs =['libs', 'jniLibs']
-            assets.srcDirs = ['src/main/assets']
-            //resources.srcDirs = ['src/main/res/raw/']
-        }
-    }
     namespace = "com.qsp.nvpfa"
-    compileSdkVersion 35
+    compileSdk = 35
+
     defaultConfig {
-        minSdkVersion 21
-        targetSdkVersion 35
+        applicationId "com.qsp.nvpfa"
+        minSdk = 21
+        targetSdk = 35
         versionCode 1
         versionName "1.0"
 
         ndk {
             abiFilters 'arm64-v8a'
         }
-        /*
-        externalNativeBuild {
-            ndkBuild {
-                arguments "APP_PLATFORM=android-21"
-                // abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
-                abiFilters 'arm64-v8a'
-            }
-            cmake {
-                arguments "-DANDROID_PLATFORM=android-21", "-DANDROID_STL=c++_static"
-                // abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
-                abiFilters 'arm64-v8a'
-            }
-        }*/
     }
+
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            minifyEnabled false
         }
     }
-    applicationVariants.all { variant ->
-        tasks["merge${variant.name.capitalize()}Assets"]
-            .dependsOn("externalNativeBuild${variant.name.capitalize()}")
-    }
-    if (!project.hasProperty('EXCLUDE_NATIVE_LIBS')) {
-        sourceSets.main {
-            jniLibs.srcDirs = ['libs', 'jniLibs']
-        }
-        externalNativeBuild {
-            if (1) {
-                cmake {
-                    path 'jni/CMakeLists.txt'
-                }
-            } else {
-                ndkBuild {
-                    path 'jni/Android.mk'
-                }
-            }
-        }
 
+    buildFeatures {
+        prefab true
     }
+
+    externalNativeBuild {
+        cmake {
+            path "jni/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['libs', 'jniLibs']
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+
     lint {
         abortOnError = false
     }
 }
 
-
 dependencies {
     implementation files('libs/SDL3-3.2.10.aar')
     implementation files('libs/SDL3_image-3.2.4.aar')
 
-    implementation 'androidx.core:core:1.13.0' // 使用最新的版本
+    implementation 'androidx.core:core:1.13.0'
     implementation 'androidx.activity:activity-ktx:1.8.0'
     implementation 'androidx.fragment:fragment-ktx:1.5.6'
     implementation fileTree(include: ['*.jar'], dir: 'libs')
