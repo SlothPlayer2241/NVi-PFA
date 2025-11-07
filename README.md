@@ -10,7 +10,7 @@ This clone is powered by Qishipai's [midi processing library](https://github.com
 
 ## Features
 - [X] Default midi and soundfont
-- [ ] Default GM Soundfont
+- [X] Default GM Soundfont
 - [X] Custom background color support
 - [X] Custom themed GUI
 - [X] Settings storage to file (.toml)
@@ -22,16 +22,16 @@ This clone is powered by Qishipai's [midi processing library](https://github.com
 - [X] Live Note speed change
 - [X] Improving the audio limiter
 - [X] Better UI layout on mobile
-- [ ] File information support
-- [ ] Custom note color array support
-- [ ] Veritcal lines on the background
-- [ ] Background image support
-- [ ] Setting custom key ranges
-- [ ] Common midi and soundfont reloading (This must not require app restarting after each midi playing session)
-- [ ] Seting for custom folders / directories to search for midi and soundfont files
-- [ ] More audio settings (like Realtime frame rate, frame fluctuation, enabling disabling limiter)
-- [ ] Performance improvements
-- [ ] Loging to text file (This can be useful for development purposes)
+- [X] File information support
+- [X] Custom note color array support
+- [X] Veritcal lines on the background
+- [X] Background image support
+- [X] Setting custom key ranges
+- [X] Common midi and soundfont reloading (This must not require app restarting after each midi playing session)
+- [X] Seting for custom folders / directories to search for midi and soundfont files
+- [X] More audio settings (like Realtime frame rate, frame fluctuation, enabling disabling limiter)
+- [X] Performance improvements
+- [X] Loging to text file (This can be useful for development purposes)
 - [X] Custom icon and app name
 
 # How to build an apk
@@ -39,7 +39,7 @@ First you need to make sure you have the android studio and android-sdk installe
 
 2) Git clone this repo and cd into it.
 3) Set the path to the android sdk in [local.properties](local.properties)
-4) Run the following commands:
+4) Run the build command:
 ```
 ./gradlew assembleDebug
 ```
@@ -53,9 +53,10 @@ This only builds the debug version of the apk
 
 
 ### All Contributors
-- Qishipai: provider of his c++ midi processing library
-- Tweak: Creating the PFA imitation and upgrading to SDL3, implementing a simple overlap remover
-- 0xsys: Most UI design, settings and translations
-- Nerdly: UI Font Choice
-- Hex: Playback options: play / pause, seek backwards/forwards
-- Zeal: Custom Icon
+- Qishipai: provider of his c++ midi processing library;
+- Tweak: Creating the PFA imitation and upgrading to SDL3, implementing a simple overlap remover;
+- 0xsys: Most UI design, settings and translations;
+- Nerdly: UI Font Choice;
+- Hex: Playback options: play / pause, seek backwards/forwards;
+- Zeal: Custom Icon;
+- CraftyKid: Bug fixes and Android Improvements with adding new features.
