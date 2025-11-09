@@ -20,6 +20,9 @@
 #include "Gui.hxx"
 //#include "Utils.hxx"
 
+// Intro mode flag declared in Player.cxx
+extern bool is_intro_mode;
+
 
 
 
@@ -129,48 +132,89 @@ static int call_index = 0;
 
 Canvas::Canvas()
 {
-    call_index++; // Increment the index each time this method gets called
-    
-    // Avoiding to initialize SDL and imgui 2 times bc apparently this class method gets called 2 times
-    // Very weird
-    if(call_index == 2)
-    {
-        SDL_Init(SDL_INIT_VIDEO); //IMG_Init(IMG_INIT_PNG);
-        //Win = SDL_CreateWindow("NVplayer++", parsed_config.window_w, parsed_config.window_h, 0);
-        //Win = SDL_CreateWindow("NVplayer++", 1900, 900, 0);
+    // Initialize background texture
+    background_texture = nullptr;
+
+    // Initialize performance monitoring
+    frame_rate = 0.0f;
+    last_frame_time = 0.0f;
+    frame_count = 0;
+    fps_update_timer = 0.0f;
+
+    // Initialize note counter tracking
+    note_hits_count = 0;
+    for (int i = 0; i < 128; ++i) {
+        NoteCounted[i] = false;
+    }
+
+    // Create SDL window and renderer once. On Android the SDLActivity will already have initialized video
+    // but creating a fullscreen window here ensures the app fills the display on every run and avoids
+    // partial-size windows on subsequent launches.
+    if (!Win) {
+        SDL_Init(SDL_INIT_VIDEO);
 #ifndef NON_ANDROID
-        Win = SDL_CreateWindow("NVplayer++", 1920, 1080, 0);
+    // On Android: query the display size and create a window sized to the display. Some NDK/SDL
+    // combinations don't expose SDL_WINDOW_FULLSCREEN_DESKTOP, so avoid relying on that macro.
+    SDL_DisplayID disp = SDL_GetPrimaryDisplay();
+    const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(disp);
+        int dw = dm ? dm->w : 1920;
+        int dh = dm ? dm->h : 1080;
+        // Create window sized to the display. Use 0 flags for maximum portability across SDL3 builds.
+        Win = SDL_CreateWindow("NVplayer++", dw, dh,  (SDL_WindowFlags)0);
 #else
-        Win = SDL_CreateWindow("NVplayer++", 1900, 900, 0);
+    int ww = parsed_config.window_w > 0 ? parsed_config.window_w : 1280;
+    int wh = parsed_config.window_h > 0 ? parsed_config.window_h : 720;
+    Win = SDL_CreateWindow("NVplayer++", ww, wh, (SDL_WindowFlags)0);
 #endif
-        if(Win == nullptr)
-        {
-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error!!!!!", "Failed to create window" , nullptr);
+        if (Win == nullptr) {
+            NVi::error("Canvas", "Failed to create window");
+            // On Android, don't crash - the app should handle this gracefully
+            return;
         }
-        
-        
+
         Ren = SDL_CreateRenderer(Win, "opengles2");
-        if(Ren == nullptr)
-        {
-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error!!!!!", "Failed to create render context" , nullptr);
+        if (Ren == nullptr) {
+            NVi::error("Canvas", "Failed to create render context");
+            // On Android, don't crash - the app should handle this gracefully
+            return;
         }
-        
-	    SDL_SetRenderVSync(Ren, 1);
-	    SDL_SetWindowPosition(Win, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
-	
-	    SDL_DisplayID sid = SDL_GetDisplayForWindow(Win);
-	    mod = SDL_GetDesktopDisplayMode(sid);
-	    SDL_SetRenderDrawBlendMode(Ren, SDL_BLENDMODE_BLEND);
-	    //R, G, B, A
-        // SDL_SetRenderDrawColor(Ren, parsed_config.bg_R, parsed_config.bg_G, parsed_config.bg_B, 255); // Background color
-        SDL_SetRenderDrawColorFloat(Ren, parsed_config.bg_R, parsed_config.bg_G, parsed_config.bg_B, parsed_config.bg_A);
-        SDL_GetWindowSize(Win, &WinW, &WinH);
-        NVGui::Setup(Win, Ren);
+
+        // Disable VSync for lower rendering latency on mobile devices; rely on frame limiting instead
+        SDL_SetRenderVSync(Ren, 0);
+
+        // Ensure renderer blends correctly and pick up display mode
+        SDL_SetRenderDrawBlendMode(Ren, SDL_BLENDMODE_BLEND);
+        SDL_DisplayID sid = SDL_GetDisplayForWindow(Win);
+        mod = SDL_GetDesktopDisplayMode(sid);
+
+        // Convert parsed_config background (0-255) to float 0.0-1.0 for SetRenderDrawColorFloat if values are normalized
+        SDL_SetRenderDrawColorFloat(Ren, parsed_config.bg_R / 255.0f, parsed_config.bg_G / 255.0f, parsed_config.bg_B / 255.0f, parsed_config.bg_A / 255.0f);
+
+    // Ensure the window size matches the display size (fixes half-screen on second run on some devices)
+    // Use the desktop/display mode we sampled earlier (mod) to resize the window if necessary.
+#ifndef NON_ANDROID
+    if (mod != nullptr && mod->w > 0 && mod->h > 0) {
+        int ww = 0, wh = 0;
+        SDL_GetWindowSize(Win, &ww, &wh);
+        if (ww != mod->w || wh != mod->h) {
+            SDL_SetWindowSize(Win, mod->w, mod->h);
+        }
+    }
+#endif
+    SDL_GetWindowSize(Win, &WinW, &WinH);
+    NVGui::Setup(Win, Ren);
     }
 
 	for (int i = 0; i != 128; ++i)
 	{
 		KeyX[i] = (i / 12 * 126 + GenKeyX[i % 12]) * WinW / 1350;
+		// Ensure all keys are visible on screen by clamping to window width
+		if (KeyX[i] + _KeyWidth[i] > WinW) {
+			KeyX[i] = WinW - _KeyWidth[i];
+		}
+		if (KeyX[i] < 0) {
+			KeyX[i] = 0;
+		}
 	}
 
 
@@ -223,6 +267,9 @@ Canvas::~Canvas()
     SDL_DestroyTexture(Bk0);
     SDL_DestroyTexture(Bk1);
     SDL_DestroyTexture(Wk);
+    if (background_texture) {
+        SDL_DestroyTexture(background_texture);
+    }
     SDL_DestroyRenderer(Ren);
     SDL_DestroyWindow(Win);
     SDL_Quit();
@@ -233,15 +280,98 @@ void Canvas::canvas_clear()
 
     SDL_RenderClear(Ren);
 
+    // Draw background image first if enabled
+    DrawBackgroundImage();
+    
+    // Draw vertical lines on background
+    DrawVerticalLines();
+
     for (int i = 0; i < 128; ++i)
     {
-        KeyColor[i] = 0xFFFFFFFF, KeyPress[i] = false;
+        KeyColor[i] = 0xFFFFFFFF;
+        KeyPress[i] = false;
+        // Reset KeyAlpha each frame so only actively drawn notes set it. This prevents sticking.
+        KeyAlpha[i] = 0.0f;
+        // Reset one-frame just-hit flags
+        KeyJustHit[i] = false;
     }
 }
 
+void Canvas::DrawVerticalLines()
+{
+    // Draw vertical lines across the screen for visual reference
+    // Use fewer lines so they are farther apart on smaller screens.
+    const int numLines = 16; // fewer lines -> increased spacing
+    const int lineSpacing = WinW / numLines;
+    const unsigned int lineColor = 0x1AFFFFFF; // Semi-transparent white lines
+
+    for (int i = 1; i < numLines; ++i) {
+        int x = i * lineSpacing;
+        SDL_SetRenderDrawColor(Ren, 
+            (lineColor & 0xFF), 
+            ((lineColor & 0xFF00) >> 8), 
+            ((lineColor & 0xFF0000) >> 16), 
+            ((lineColor & 0xFF000000) >> 24));
+        SDL_RenderLine(Ren, x, 0, x, WinH);
+    }
+}
+
+bool Canvas::LoadBackgroundImage(const std::string& image_path)
+{
+    // Destroy existing background texture if it exists
+    if (background_texture) {
+        SDL_DestroyTexture(background_texture);
+        background_texture = nullptr;
+    }
+    
+    if (image_path.empty()) {
+        return false;
+    }
+    
+    // Load the image surface
+    SDL_Surface* surface = SDL_LoadBMP(image_path.c_str());
+    if (!surface) {
+        // Try other formats if BMP fails
+        surface = SDL_LoadBMP(image_path.c_str());
+        if (!surface) {
+            NVi::error("Canvas", "Failed to load background image: %s\n", image_path.c_str());
+            return false;
+        }
+    }
+    
+    // Create texture from surface
+    background_texture = SDL_CreateTextureFromSurface(Ren, surface);
+    SDL_DestroySurface(surface);
+    
+    if (!background_texture) {
+        NVi::error("Canvas", "Failed to create texture from background image\n");
+        return false;
+    }
+    
+    NVi::info("Canvas", "Background image loaded: %s\n", image_path.c_str());
+    return true;
+}
+
+void Canvas::DrawBackgroundImage()
+{
+    if (background_texture && parsed_config.use_background_image) {
+        SDL_FRect dest_rect = {0, 0, (float)WinW, (float)WinH};
+        SDL_RenderTexture(Ren, background_texture, nullptr, &dest_rect);
+    }
+}
+
+
 void Canvas::DrawKeyBoard()
 {
-	float fTransitionPct = .02f;
+    // Do NOT decay KeyAlpha here. KeyAlpha is now immediately set/cleared by the playback
+    // code (Player.cxx) so key visuals vanish as soon as a note ends. Keep KeyPress cleared
+    // to avoid legacy stuck states.
+    for (int i = 0; i < 128; ++i)
+    {
+        KeyPress[i] = false;
+    }
+
+    float fTransitionPct = .02f;
     float fTransitionCY = std::max( 3.0f, std::floor( WinW * 82 / 1000 * fTransitionPct + 0.5f ) );
     float fRedPct = .05f;
     float fRedCY = floor( WinW * 82 / 1000 * fRedPct + 0.5f );
@@ -260,8 +390,11 @@ void Canvas::DrawKeyBoard()
     DrawRect(Ren, 0, WinH - WinW * 82 / 1000 + fTransitionCY + fRedCY, WinW, fSpacerCY, 0xFF1C1C1C, 0xFF1C1C1C, 0xFF1C1C1C, 0xFF1C1C1C );
     for (int i = 0; i != 75; ++i)
     {
-	    int j = KeyMap[i];
-	    if (!KeyPress[j])//If the key is not pressed
+    	int j = KeyMap[i];
+    	// Use KeyAlpha for smoother fading visual or one-frame KeyJustHit
+    	bool justHit = KeyJustHit[j];
+    	bool pressed = KeyAlpha[j] > 0.01f;
+    	if (!pressed && !justHit)//If the key is not pressed and not just hit
         {
 	        DrawRect(Ren, fCurX + fKeyGap1 , fCurY+WinH - WinW * 82 / 1000, _KeyWidth[j] - fKeyGap, fTopCY + fNearCY, 0xFFCCCCCC, 0xFFCCCCCC, 0xFFFFFFFF, 0xFFFFFFFF );
             DrawRect(Ren, fCurX + fKeyGap1 , fCurY + fTopCY+WinH - WinW * 82 / 1000, _KeyWidth[j] - fKeyGap, fNearCY, 0xFFCCCCCC, 0xFFCCCCCC, 0xFF999999, 0xFF999999 );
@@ -277,25 +410,32 @@ void Canvas::DrawKeyBoard()
         }
         else
         {
-	        unsigned int  c = KeyColor[j];
-	        unsigned short r = (c&0xFF);
-		    unsigned short g = ((c&0xFF00)>>8);
-		    unsigned short b = ((c&0xFF0000)>>16);
-		    unsigned short r1 = r*0.8f;
-            unsigned short g1 = g*0.8f;
-            unsigned short b1 = b*0.8f;
-       	    unsigned short r2 = r*0.6f;
-            unsigned short g2 = g*0.6f;
-            unsigned short b2 = b*0.6f;
-            // unsigned int l=0xFF000000|r1|g1<<8|b1<<16;
-	        DrawRect(Ren, fCurX + fKeyGap1 , fCurY+WinH - WinW * 82 / 1000, _KeyWidth[j] - fKeyGap, fTopCY + fNearCY - 2.0f, 0xFF000000|r1|g1<<8|b1<<16,0xFF000000|r1|g1<<8|b1<<16, c, c );
-	        DrawRect(Ren, fCurX + fKeyGap1 , fCurY + fTopCY + fNearCY - 2.0f+WinH - WinW * 82 / 1000, _KeyWidth[j] - fKeyGap, 2.0f, 0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16 );
-	        if ( j == 60 )
+            // Determine color (allow intro-mode override)
+            unsigned int c = KeyColor[j];
+            if (is_intro_mode) {
+                // intro: left = blue, right = orange
+                // Using AABBGGRR ordering to match drawing code expectations
+                c = (j < 60) ? 0xFFFF0000 : 0xFF337EFF; // blue : orange (reordered)
+            }
+            // Blend pressed color with default based on KeyAlpha
+            float a = std::min(std::max(KeyAlpha[j], 0.0f), 1.0f);
+            if (justHit) a = 1.0f;
+            unsigned short r = (c&0xFF);
+            unsigned short g = ((c&0xFF00)>>8);
+            unsigned short b = ((c&0xFF0000)>>16);
+            unsigned short r1 = (unsigned short)(r * (0.6f + 0.4f * a));
+            unsigned short g1 = (unsigned short)(g * (0.6f + 0.4f * a));
+            unsigned short b1 = (unsigned short)(b * (0.6f + 0.4f * a));
+            unsigned short r2 = (unsigned short)(r * (0.3f + 0.3f * a));
+            unsigned short g2 = (unsigned short)(g * (0.3f + 0.3f * a));
+            unsigned short b2 = (unsigned short)(b * (0.3f + 0.3f * a));
+            DrawRect(Ren, fCurX + fKeyGap1 , fCurY+WinH - WinW * 82 / 1000, _KeyWidth[j] - fKeyGap, fTopCY + fNearCY - 2.0f, 0xFF000000|r1|g1<<8|b1<<16,0xFF000000|r1|g1<<8|b1<<16, c, c );
+            DrawRect(Ren, fCurX + fKeyGap1 , fCurY + fTopCY + fNearCY - 2.0f+WinH - WinW * 82 / 1000, _KeyWidth[j] - fKeyGap, 2.0f, 0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16 );
+            if ( j == 60 )
             {
                 float fMXGap = floor( _KeyWidth[j] * 0.25f + 0.5f );
                 float fMCX = _KeyWidth[j] - fMXGap * 2.0f - fKeyGap;
                 float fMY = std::max( fCurY + fTopCY + fNearCY - fMCX - 7.0f, fCurY + fSharpCY + 5.0f );
-                // DrawRect(Ren, fCurX + fKeyGap1+WinH - WinW * 82 / 1000 + fMXGap, fMY, fMCX, fCurY + fTopCY + fNearCY - 7.0f - fMY, m_csKBWhite.iDarkRGB );
                 DrawRect(Ren, fCurX + fKeyGap1 + fMXGap , fMY+WinH - WinW * 82 / 1000, fMCX, fCurY + fTopCY + fNearCY - 7.0f - fMY, 0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16,0xFF000000|r2|g2<<8|b2<<16);
             }
         }
@@ -310,13 +450,13 @@ void Canvas::DrawKeyBoard()
 	    //	Draw3Drect2(_KeyX[j]+1, 1, _KeyWidth[j]-1, bgr-2, 0xFFAFAFAF,1.3);
 	    //}
 		//Drawing shadows on the bottom of the keys
-		DrawRect(Ren, floor( fCurX + fKeyGap1 + _KeyWidth[j] - fKeyGap + 0.5f ), fCurY+WinH - WinW * 82 / 1000, fKeyGap, fTopCY + fNearCY, 0xFF000000, 0xFF999999, 0xFF999999, 0xFF000000 );
+        DrawRect(Ren, floor( fCurX + fKeyGap1 + _KeyWidth[j] - fKeyGap + 0.5f ), fCurY+WinH - WinW * 82 / 1000, fKeyGap, fTopCY + fNearCY, 0xFF000000, 0xFF999999, 0xFF999999, 0xFF000000 );
 		fCurX+=_KeyWidth[j];
     }
     float fSharpTop = SharpRatio * 0.7f;
 
     fCurY = fTransitionCY + fRedCY + fSpacerCY;
-	for (int i=75; i != 128; ++i)
+    for (int i=75; i != 128; ++i)
     {
 	    int j = KeyMap[i];
 	    float fNudgeX = 0.3;
@@ -328,7 +468,9 @@ void Canvas::DrawKeyBoard()
         const float x = fCurX - _KeyWidth[0] * ( SharpRatio / 2.0f - fNudgeX );
         const float fSharpTopX1 = x + _KeyWidth[0] * ( SharpRatio - fSharpTop ) / 2.0f;
         const float fSharpTopX2 = fSharpTopX1 + _KeyWidth[0] * fSharpTop;
-	    if (!KeyPress[j])//If the key is not pressed
+    bool justHit2 = KeyJustHit[j];
+    bool pressed2 = KeyAlpha[j] > 0.01f;
+    if (!pressed2 && !justHit2)//If the key is not pressed and not just hit
         {
             DrawSkew(Ren, fSharpTopX1, fCurY + fSharpCY - fNearCY+WinH - WinW * 82 / 1000, fSharpTopX2, fCurY + fSharpCY - fNearCY+WinH - WinW * 82 / 1000, x + cx, fCurY + fSharpCY+WinH - WinW * 82 / 1000, x, fCurY + fSharpCY+WinH - WinW * 82 / 1000, 0xFF404040,0xFF404040, 0xFF000000, 0xFF000000 );
             DrawSkew(Ren, fSharpTopX1, fCurY - fNearCY+WinH - WinW * 82 / 1000, fSharpTopX1, fCurY + fSharpCY - fNearCY+WinH - WinW * 82 / 1000, x, fCurY + fSharpCY+WinH - WinW * 82 / 1000, x, fCurY+WinH - WinW * 82 / 1000, 0xFF404040,0xFF404040, 0xFF000000, 0xFF000000 );
@@ -339,14 +481,20 @@ void Canvas::DrawKeyBoard()
         }
         else
         {
-	        const float fNewNear = fNearCY * 0.25f;
-		    unsigned int  c = KeyColor[j];
-	        unsigned short r = (c&0xFF);
-		    unsigned short g = ((c&0xFF00)>>8);
-		    unsigned short b = ((c&0xFF0000)>>16);
-		    unsigned short r1 = r*0.5f;
-            unsigned short g1 = g*0.5f;
-            unsigned short b1 = b*0.5f;
+        	const float fNewNear = fNearCY * 0.25f;
+        	unsigned int c = KeyColor[j];
+            if (is_intro_mode) {
+                // intro: left = blue, right = orange (AABBGGRR)
+                c = (j < 60) ? 0xFFFF0000 : 0xFF337EFF;
+            }
+        	float a = std::min(std::max(KeyAlpha[j], 0.0f), 1.0f);
+			if (justHit2) a = 1.0f;
+        	unsigned short r = (c&0xFF);
+        	unsigned short g = ((c&0xFF00)>>8);
+        	unsigned short b = ((c&0xFF0000)>>16);
+        	unsigned short r1 = (unsigned short)(r * (0.4f + 0.6f * a));
+            unsigned short g1 = (unsigned short)(g * (0.4f + 0.6f * a));
+            unsigned short b1 = (unsigned short)(b * (0.4f + 0.6f * a));
             DrawSkew(Ren, fSharpTopX1, fCurY + fSharpCY - fNewNear+WinH - WinW * 82 / 1000, fSharpTopX2, fCurY + fSharpCY - fNewNear+WinH - WinW * 82 / 1000, x + cx, fCurY + fSharpCY+WinH - WinW * 82 / 1000, x, fCurY + fSharpCY+WinH - WinW * 82 / 1000, c, c, 0xFF000000|r1|g1<<8|b1<<16, 0xFF000000|r1|g1<<8|b1<<16 );
             DrawSkew(Ren, fSharpTopX1, fCurY - fNewNear+WinH - WinW * 82 / 1000, fSharpTopX1, fCurY + fSharpCY - fNewNear+WinH - WinW * 82 / 1000, x, fCurY + fSharpCY+WinH - WinW * 82 / 1000, x, fCurY+WinH - WinW * 82 / 1000, c, c, 0xFF000000|r1|g1<<8|b1<<16, 0xFF000000|r1|g1<<8|b1<<16 );
             DrawSkew(Ren, fSharpTopX2, fCurY + fSharpCY - fNewNear+WinH - WinW * 82 / 1000, fSharpTopX2, fCurY - fNewNear+WinH - WinW * 82 / 1000, x + cx, fCurY+WinH - WinW * 82 / 1000, x + cx, fCurY + fSharpCY+WinH - WinW * 82 / 1000, c, c, 0xFF000000|r1|g1<<8|b1<<16, 0xFF000000|r1|g1<<8|b1<<16 );
@@ -434,6 +582,39 @@ void Canvas::Note(int k, int yb, int ye, unsigned int c)
 
 }
 
+unsigned int Canvas::GetNoteColor(int note_number)
+{
+    // Check if custom note colors are enabled and available
+    if (parsed_config.use_custom_note_colors && !parsed_config.custom_note_colors.empty()) {
+        // Use modulo to cycle through available colors
+        int color_index = note_number % parsed_config.custom_note_colors.size();
+        unsigned int primary = static_cast<unsigned int>(parsed_config.custom_note_colors[color_index] & 0xFFFFFFu); // 0xRRGGBB
+
+        // Convert 0xRRGGBB to renderer ordering (AABBGGRR expected by DrawRect)
+        unsigned int r = (primary >> 16) & 0xFF;
+        unsigned int g = (primary >> 8) & 0xFF;
+        unsigned int b = primary & 0xFF;
+        unsigned int out = 0xFF000000u | (b << 16) | (g << 8) | (r << 0);
+        return out;
+    }
+
+    // Default color scheme - return white for all notes
+    unsigned int primary = static_cast<unsigned int>(parsed_config.primary_note_color & 0xFFFFFFu);
+    unsigned int r = (primary >> 16) & 0xFF;
+    unsigned int g = (primary >> 8) & 0xFF;
+    unsigned int b = primary & 0xFF;
+    return 0xFF000000u | (b << 16) | (g << 8) | (r << 0);
+}
+
+bool Canvas::IsNoteInRange(int note_number)
+{
+    if (parsed_config.use_custom_key_range) {
+        return note_number >= parsed_config.key_range_start && 
+               note_number <= parsed_config.key_range_end;
+    }
+    return true; // All notes are in range if custom range is disabled
+}
+
 int Canvas::scale(int x) const
 {
     // Fixed a small note glitch LMfaoerGdfgg
@@ -445,4 +626,44 @@ Canvas::RGBA_pix Canvas::getColor(color C) const
 {
     int x = C.real() + 1024.5f, y = C.imag() + 1024.5f;
     return *((RGBA_pix*)colors->pixels + (x + y * 2048));
+}
+
+void Canvas::OptimizeRendering()
+{
+    // Enable VSync for consistent frame rate
+    SDL_SetRenderVSync(Ren, 1);
+    
+    // Optimize texture rendering
+    SDL_SetRenderDrawBlendMode(Ren, SDL_BLENDMODE_BLEND);
+    
+    // Log performance optimization
+    NVi::LogToFile("PERFORMANCE", "Rendering optimizations applied\n");
+}
+
+unsigned int Canvas::GetNoteCount()
+{
+    return static_cast<unsigned int>(note_hits_count);
+}
+
+float Canvas::GetFrameRate()
+{
+    float current_time = SDL_GetTicks() / 1000.0f;
+    frame_count++;
+
+    // Initialize timer on first use (avoid dividing by near-zero, make updates more responsive)
+    if (fps_update_timer <= 0.0f) {
+        fps_update_timer = current_time;
+        frame_count = 0;
+        return frame_rate;
+    }
+
+    float elapsed = current_time - fps_update_timer;
+    // Update every 0.25s for responsive display without too much jitter
+    if (elapsed >= 0.25f) {
+        frame_rate = frame_count / elapsed;
+        frame_count = 0;
+        fps_update_timer = current_time;
+    }
+
+    return frame_rate;
 }
