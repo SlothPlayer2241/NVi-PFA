@@ -1,6 +1,8 @@
 #include <cstdarg>
 #include <cstdio>
+#include <ctime>
 #include "Utils.hxx"
+#include "MIDI.hxx"
 //#include <bass.h>
 #include "extern/audio/bass.h"
 
@@ -109,4 +111,109 @@ void NVi::revU16(u16_t &x)
 void NVi::revU32(u32_t &x)
 {
     x = x >> 24 | (x & 0xFF0000) >> 8 | (x & 0xFF00) << 8 | x << 24;
+}
+
+void NVi::UpdateFileInfo(const std::string& file_path)
+{
+    if (!current_file_info) {
+        current_file_info = new NVmidiFileInfo();
+    }
+    
+    if (current_file_info->extract_info(file_path.c_str())) {
+        current_midi_file = file_path;
+        info("Utils", "File info updated for: %s\n", file_path.c_str());
+        LogToFile("FILE_INFO", "Successfully extracted info for: %s\n", file_path.c_str());
+    } else {
+        error("Utils", "Failed to extract file info for: %s\n", file_path.c_str());
+        LogToFile("FILE_INFO", "Failed to extract info for: %s\n", file_path.c_str());
+    }
+}
+
+void NVi::LogToFile(const char* prefix, const char* str, ...)
+{
+    // Check if logging is enabled
+    if (!parsed_config.enable_file_logging) {
+        return;
+    }
+    
+    static FILE* log_file = nullptr;
+    static bool log_initialized = false;
+    
+    if (!log_initialized) {
+#ifdef NON_ANDROID
+        log_file = fopen("nvpfa.log", "a");
+#else
+        log_file = fopen("/data/data/com.qsp.nvpfa/files/nvpfa.log", "a");
+#endif
+        log_initialized = true;
+    }
+    
+    if (log_file) {
+        // Get current time
+        time_t now = time(0);
+        struct tm* timeinfo = localtime(&now);
+        
+        // Write timestamp and message
+        fprintf(log_file, "[%04d-%02d-%02d %02d:%02d:%02d] [%s] ", 
+                timeinfo->tm_year + 1900, timeinfo->tm_mon + 1, timeinfo->tm_mday,
+                timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec, prefix);
+        
+        va_list args;
+        va_start(args, str);
+        vfprintf(log_file, str, args);
+        va_end(args);
+        
+        fflush(log_file);
+    }
+}
+
+void NVi::ReloadMidiList()
+{
+    LogToFile("RELOAD", "Reloading MIDI list...\n");
+    CreateMidiList();
+    info("Utils", "MIDI list reloaded\n");
+}
+
+void NVi::ReloadSoundfontList()
+{
+    LogToFile("RELOAD", "Reloading soundfont list...\n");
+    RefreshSFList();
+    info("Utils", "Soundfont list reloaded\n");
+}
+
+void NVi::ReloadAllResources()
+{
+    LogToFile("RELOAD", "Reloading all resources...\n");
+    ReloadMidiList();
+    ReloadSoundfontList();
+    info("Utils", "All resources reloaded\n");
+}
+
+void NVi::LoadDefaultGMSoundfont()
+{
+    if (parsed_config.use_default_gm_soundfont) {
+        std::string gm_path = NVConf::GetDefaultGMSoundfontPath();
+        LogToFile("SOUNDFONT", "Loading default GM soundfont: %s\n", gm_path.c_str());
+        info("Utils", "Loading GM soundfont: %s\n", gm_path.c_str());
+        
+        // Here you would typically load the soundfont into your audio system
+        // For now, we'll just log that it's being loaded
+        // In a real implementation, you would call your audio library's soundfont loading function
+    }
+}
+
+bool NVi::CheckGMSoundfontExists()
+{
+    std::string gm_path = NVConf::GetDefaultGMSoundfontPath();
+    
+    // Check if file exists
+    FILE* file = fopen(gm_path.c_str(), "rb");
+    if (file) {
+        fclose(file);
+        LogToFile("SOUNDFONT", "GM soundfont found: %s\n", gm_path.c_str());
+        return true;
+    } else {
+        LogToFile("SOUNDFONT", "GM soundfont not found: %s\n", gm_path.c_str());
+        return false;
+    }
 }
