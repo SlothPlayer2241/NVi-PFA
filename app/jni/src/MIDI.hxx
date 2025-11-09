@@ -35,6 +35,21 @@ struct NVmidiFile   /* ===== MIDI file type ===== */
     void mid_close();   // Close midi file
 };
 
+struct NVmidiFileInfo   /* ===== MIDI file information ===== */
+{
+    std::string title;
+    std::string artist;
+    std::string copyright;
+    std::string comment;
+    NVi::u16_t type;
+    NVi::u16_t tracks;
+    NVi::u16_t ppnq;
+    double duration_seconds;
+    
+    /* Extract file information */
+    bool extract_info(const char *name);
+};
+
 struct NVmidiEvent  /* =====  MIDI Event Class ===== */
 {
     NV_METYPE    type;
