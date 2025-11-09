@@ -167,3 +167,64 @@ bool NVmidiEvent::get(u16_t track, NVmidiFile &midi)
 
     return true;
 }
+
+bool NVmidiFileInfo::extract_info(const char *name)
+{
+    NVmidiFile midi_file;
+    if (!midi_file.mid_open(name)) {
+        return false;
+    }
+    
+    // Copy basic info
+    type = midi_file.type;
+    tracks = midi_file.tracks;
+    ppnq = midi_file.ppnq;
+    
+    // Initialize strings
+    title = "Unknown";
+    artist = "Unknown";
+    copyright = "";
+    comment = "";
+    duration_seconds = 0.0;
+    
+    // Extract metadata from tracks
+    NVmidiEvent event;
+    NVi::u32_t max_tick = 0;
+    
+    for (NVi::u16_t track = 0; track < tracks; ++track) {
+        midi_file.rewind_all();
+        
+        while (event.get(track, midi_file)) {
+            if (event.type == NV_METYPE::META) {
+                switch (event.num) {
+                    case 0x03: // Track/Sequence Name
+                        if (title == "Unknown") {
+                            title = std::string((char*)event.data, event.datasz);
+                        }
+                        break;
+                    case 0x02: // Copyright
+                        copyright = std::string((char*)event.data, event.datasz);
+                        break;
+                    case 0x01: // Text Event
+                        if (comment.empty()) {
+                            comment = std::string((char*)event.data, event.datasz);
+                        }
+                        break;
+                }
+            }
+            
+            // Track maximum tick for duration calculation
+            if (event.tick > max_tick) {
+                max_tick = event.tick;
+            }
+        }
+    }
+    
+    // Calculate duration (approximate)
+    if (ppnq > 0) {
+        duration_seconds = (double)max_tick / (double)ppnq;
+    }
+    
+    midi_file.mid_close();
+    return true;
+}
