@@ -16,6 +16,10 @@
 
 
 #include "file_utils.hxx"
+#include "Utils.hxx"
+
+#include <algorithm>
+#include <cctype>
 
 
 
@@ -34,7 +38,7 @@ std::vector<std::string> NVFileUtils::GetFilesByExtension(std::string base_dir, 
     
         if (!dir)
         {
-            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error!!!!!", ("Failed to scan: " + base_dir).c_str(), nullptr);
+            NVi::error("FileUtils", ("Failed to scan: " + base_dir).c_str());
             return result;
         }
     
@@ -66,11 +70,18 @@ std::vector<std::string> NVFileUtils::GetFilesByExtension(std::string base_dir, 
             } 
             else if (S_ISREG(statbuf.st_mode)) 
             {
-                if (name.size() >= f_ext.size() &&
-                    name.substr(name.size() - f_ext.size()) == f_ext)
+                if (name.size() >= f_ext.size())
                 {
-                    // std::cout << "Files found: " << full_path << "\n";
-                    result.push_back(full_path);
+                    std::string tail = name.substr(name.size() - f_ext.size());
+                    std::string tail_l = tail;
+                    std::string ext_l = f_ext;
+                    std::transform(tail_l.begin(), tail_l.end(), tail_l.begin(), [](unsigned char c){ return std::tolower(c); });
+                    std::transform(ext_l.begin(), ext_l.end(), ext_l.begin(), [](unsigned char c){ return std::tolower(c); });
+                    if (tail_l == ext_l)
+                    {
+                        // std::cout << "Files found: " << full_path << "\n";
+                        result.push_back(full_path);
+                    }
                 }
             }
         }
@@ -97,7 +108,7 @@ std::string NVFileUtils::GetFilePathA(std::string filename, const char * reading
         out_path = "";
         std::ostringstream temp_msg;
         temp_msg << "Failed to get file !\n" << "'" << full_path.str() << "' Does not exists !";
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error!!!!!", temp_msg.str().c_str(), nullptr);
+        NVi::error("FileUtils", temp_msg.str().c_str());
     }
     SDL_free(base_path);
     return out_path;
