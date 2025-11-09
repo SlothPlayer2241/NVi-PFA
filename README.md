@@ -45,8 +45,6 @@ First you need to make sure you have the android studio and android-sdk installe
 ```
 This only builds the debug version of the apk
 
-There's also an apk file you can download in app/build/outputs/apk/debug/ 
-
 *) If you want to build the desktop version (which is currently available and works best on arch linux atm) check out [the guide build](app/jni/src/README.md) from the core source code of the app.
 
 
